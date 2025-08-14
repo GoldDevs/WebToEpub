@@ -1,0 +1,13 @@
+{
+    "name": "jules/webtoepub-php",
+    "description": "A PHP-based web application to convert web stories into EPUB files.",
+    "type": "project",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

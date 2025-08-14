@@ -9,3 +9,7 @@ package-lock.json
 .vscode
 /plugin/dompurify/
 /plugin/@zip.js/
+
+# PHP dependencies
+vendor/
+composer.phar
