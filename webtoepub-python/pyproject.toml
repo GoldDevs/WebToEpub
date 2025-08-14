@@ -1,0 +1,35 @@
+[project]
+name = "webtoepub"
+version = "0.1.0"
+description = "A Python utility to convert web novels into EPUB files."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "GPL-3.0-only" }
+authors = [
+    { name = "Jules", email = "jules@example.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing",
+    "Environment :: Console",
+]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "EbookLib",
+    "typer[all]",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/example/webtoepub-python"
+"Bug Tracker" = "https://github.com/example/webtoepub-python/issues"
+
+[project.scripts]
+webtoepub = "webtoepub.main:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
