@@ -20,6 +20,11 @@ class NovelfullParser(Parser):
         # I will not implement this for now.
         return []
 
+    def get_chapter_title(self, soup: BeautifulSoup) -> str:
+        # Default implementation for Novelfull-based sites
+        title_tag = soup.select_one(".chr-text")
+        return title_tag.get_text(strip=True) if title_tag else ""
+
     def extract_content(self, url: str, soup: BeautifulSoup) -> str:
         content_div = soup.select_one("#chr-content, #chapter-content")
         return str(content_div) if content_div else ""

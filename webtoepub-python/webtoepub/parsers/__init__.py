@@ -3,3 +3,5 @@
 # Import all parsers here to register them with the factory.
 from . import archiveofourown_parser
 from . import fanfiction_parser
+from . import novelbin_parser
+from . import novelfull_parser

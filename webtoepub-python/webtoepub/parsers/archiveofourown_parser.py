@@ -47,6 +47,10 @@ class ArchiveOfOurOwnParser(Parser):
 
         return chapter_urls
 
+    def get_chapter_title(self, soup: BeautifulSoup) -> str:
+        # TODO: Implement proper chapter title extraction for AO3
+        return ""
+
     def extract_content(self, url: str, soup: BeautifulSoup) -> str:
         content_div = soup.select_one("div#chapters")
         if content_div:

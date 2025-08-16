@@ -7,10 +7,14 @@ from .epub_writer import EpubWriter
 
 app = typer.Typer()
 
+def create_safe_filename(name):
+    """Create a safe filename from a string."""
+    return "".join(c for c in name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+
 @app.command()
 def main(
     url: Annotated[str, typer.Argument(help="The URL of the web novel to download.")],
-    output_filename: Annotated[str, typer.Option(help="The name of the output EPUB file.")] = "output.epub",
+    output_filename: Annotated[str, typer.Option(help="The name of the output EPUB file.")] = None,
 ):
     """
     Downloads a web novel and converts it into an EPUB file.
@@ -32,6 +36,11 @@ def main(
         print(f"Title: {title}")
         print(f"Author: {author}")
 
+        # Generate output filename if not provided
+        if not output_filename:
+            safe_title = create_safe_filename(title) if title else "novel"
+            output_filename = f"{safe_title}.epub"
+
         # Extract chapter URLs
         chapter_urls = parser.get_chapter_urls(url, main_page_soup)
         print(f"Found {len(chapter_urls)} chapters.")
@@ -43,7 +52,7 @@ def main(
             chapter_html = get_html(chapter_url)
             chapter_soup = BeautifulSoup(chapter_html, "html.parser")
             chapter_content = parser.extract_content(chapter_url, chapter_soup)
-            chapter_title = f"Chapter {i+1}" # A more sophisticated parser could get the real title
+            chapter_title = parser.get_chapter_title(chapter_soup) or f"Chapter {i+1}"
             chapters.append({"title": chapter_title, "content": chapter_content})
 
         # Create the EPUB

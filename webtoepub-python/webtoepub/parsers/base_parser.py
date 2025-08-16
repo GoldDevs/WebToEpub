@@ -28,6 +28,13 @@ class Parser(ABC):
         pass
 
     @abstractmethod
+    def get_chapter_title(self, soup: BeautifulSoup) -> str:
+        """
+        Extracts the title of a single chapter from its soup.
+        """
+        pass
+
+    @abstractmethod
     def extract_content(self, url: str, soup: BeautifulSoup) -> str:
         """
         Extracts the main content of a chapter.

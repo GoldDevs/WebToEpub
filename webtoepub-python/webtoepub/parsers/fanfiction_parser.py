@@ -56,6 +56,10 @@ class FanFictionParser(Parser):
 
         return chapter_urls
 
+    def get_chapter_title(self, soup: BeautifulSoup) -> str:
+        # TODO: Implement proper chapter title extraction for FanFiction
+        return ""
+
     def extract_content(self, url: str, soup: BeautifulSoup) -> str:
         story_text = soup.select_one("div.storytext")
         return str(story_text) if story_text else ""

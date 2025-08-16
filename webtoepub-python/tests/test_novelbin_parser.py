@@ -32,6 +32,10 @@ def test_extract_content(novelbin_parser, novelbin_soup):
     assert "Chapter 1 The Worthless Junior Sister" in content
     assert "Today's daily tasks: Greet ten people." in content
 
+def test_get_chapter_title(novelbin_parser, novelbin_soup):
+    chapter_title = novelbin_parser.get_chapter_title(novelbin_soup)
+    assert chapter_title == "C1 The Worthless Junior Sister"
+
 @pytest.mark.skip(reason="This requires a live network request to the AJAX endpoint.")
 def test_get_chapter_urls(novelbin_parser, novelbin_soup):
     # This test would require mocking the get_html function.
