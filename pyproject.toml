@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web-to-epub"
+version = "0.1.0"
+authors = [
+  { name="Jules", email="jules@example.com" },
+]
+description = "A Python tool to convert web novels to EPUB format."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "EbookLib",
+    "textual",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/example/web-to-epub"
+"Bug Tracker" = "https://github.com/example/web-to-epub/issues"
+
+[project.scripts]
+web-to-epub = "web_to_epub.tui:main"
