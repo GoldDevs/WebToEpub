@@ -43,3 +43,34 @@ class Downloader:
                     print(f"Failed to fetch {url} after {num_retries} attempts.")
                     raise e # Re-raise the exception to be handled by the caller
         return None
+
+    def post(self, url, data, num_retries=3):
+        """
+        Sends a POST request with JSON data, with retries and rate-limiting.
+        """
+        if self.delay > 0:
+            time.sleep(self.delay / 1000.0)
+
+        for attempt in range(num_retries):
+            try:
+                response = self.session.post(url, json=data, timeout=10)
+
+                if response.status_code == 429: # Too Many Requests
+                    retry_after = int(response.headers.get("Retry-After", 5))
+                    print(f"Rate limited. Retrying after {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                return response.json()
+
+            except requests.exceptions.RequestException as e:
+                print(f"Error posting to {url} (attempt {attempt+1}/{num_retries}): {e}")
+                if attempt < num_retries - 1:
+                    backoff_time = 2 ** attempt
+                    print(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                else:
+                    print(f"Failed to post to {url} after {num_retries} attempts.")
+                    raise e
+        return None

@@ -1,3 +1,5 @@
+# This file is part of the Python port of the WebToEpub browser extension.
+# For the original project, see: https://github.com/dteviot/WebToEpub
 import io
 import concurrent.futures
 import threading
@@ -231,43 +233,18 @@ class WebToEpubApp(App):
         chapter_urls = parser_instance.get_chapter_urls(downloader)
         log.write(f"Found {len(chapter_urls)} chapters.")
 
-        for i, chapter_url in enumerate(chapter_urls):
-            try:
-                log.write(f"Downloading chapter {i+1}/{len(chapter_urls)}...")
-                self.call_from_thread(log.refresh) # Refresh the log
-                chapter_content_html = downloader.get(chapter_url)
-                if chapter_content_html:
-                    chapter_title = parser_instance.get_chapter_title(chapter_content_html) or f"Chapter {i+1}"
-                    chapter_content = parser_instance.get_chapter_content(
-                        chapter_content_html,
-                        chapter_urls=chapter_urls,
-                        remove_nav_links=self.remove_nav_links
-                    )
-                    epub_generator.add_chapter(chapter_title, chapter_content, i+1)
-                else:
-                    if not self.skip_failed_chapters:
-                        log.write(f"Failed to download chapter {i+1}. Halting.")
-                        return
-                    else:
-                        log.write(f"Failed to download chapter {i+1}. Skipping.")
-            except Exception as e:
-                if not self.skip_failed_chapters:
-                    log.write(f"An error occurred on chapter {i+1}: {e}. Halting.")
-                    return
-                else:
-                    log.write(f"An error occurred on chapter {i+1}: {e}. Skipping.")
-
         # Parallel chapter download
         chapters_to_download = list(enumerate(chapter_urls))
         chapters_data = [None] * len(chapters_to_download)
 
         while chapters_to_download:
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent_downloads) as executor:
-                future_to_chapter = {executor.submit(self._download_chapter, i, url, downloader, parser_instance, chapter_urls): (i, url) for i, url in chapters_to_download}
+                # The chapter_info can be a URL string or a dict for API-based parsers
+                future_to_chapter = {executor.submit(self._download_chapter, i, chapter_info, downloader, parser_instance, chapter_urls): (i, chapter_info) for i, chapter_info in chapters_to_download}
                 chapters_to_download = [] # Clear the list for retries
 
                 for future in concurrent.futures.as_completed(future_to_chapter):
-                    i, url = future_to_chapter[future]
+                    i, chapter_info = future_to_chapter[future]
                     try:
                         data = future.result()
                         if data:
@@ -335,22 +312,31 @@ class WebToEpubApp(App):
         self.error_choice = choice
         self.error_event.set()
 
-    def _download_chapter(self, chapter_index, chapter_url, downloader, parser, all_chapter_urls):
+    def _download_chapter(self, chapter_index, chapter_info, downloader, parser, all_chapter_urls):
         """Helper method to download and parse a single chapter."""
         try:
-            chapter_content_html = downloader.get(chapter_url, num_retries=self.num_retries)
-            if chapter_content_html:
-                chapter_title = parser.get_chapter_title(chapter_content_html) or f"Chapter {chapter_index + 1}"
-                chapter_content = parser.get_chapter_content(
-                    chapter_content_html,
-                    chapter_urls=all_chapter_urls,
-                    remove_nav_links=self.remove_nav_links
-                )
-                return chapter_title, chapter_content
+            if hasattr(parser, 'API_BASED') and parser.API_BASED:
+                chapter_content_html = parser.fetch_chapter_content(chapter_info, downloader)
+                chapter_title = chapter_info['title']
+                chapter_content = chapter_content_html # The parser already constructed the HTML
+            else:
+                chapter_url = chapter_info
+                chapter_content_html = downloader.get(chapter_url, num_retries=self.num_retries)
+                if chapter_content_html:
+                    chapter_title = parser.get_chapter_title(chapter_content_html) or f"Chapter {chapter_index + 1}"
+                    chapter_content = parser.get_chapter_content(
+                        chapter_content_html,
+                        chapter_urls=all_chapter_urls,
+                        remove_nav_links=self.remove_nav_links
+                    )
+                else:
+                    return None
+
+            return chapter_title, chapter_content
+
         except Exception as e:
             # Re-raise the exception to be caught by the main loop
             raise e
-        return None
 
     def _compress_image(self, image_content: bytes) -> bytes:
         """Compresses an image if it's larger than the max resolution."""

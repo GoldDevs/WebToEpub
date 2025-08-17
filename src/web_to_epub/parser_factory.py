@@ -4,6 +4,7 @@ This module contains the ParserFactory for creating parser instances.
 from urllib.parse import urlparse
 from .parsers.novel_full_parser import NovelFullParser, Novel35Parser, NovelHyphenBinParser, NovelbinParser
 from .parsers.default_parser import DefaultParser
+from .parsers.wtr_lab_parser import WtrLabParser
 
 # A dictionary mapping hostnames to parser classes
 PARSER_MAP = {
@@ -49,6 +50,7 @@ PARSER_MAP = {
     'novel-bin.net': NovelHyphenBinParser,
     'novel-bin.org': NovelHyphenBinParser,
     'novelbin.com': NovelbinParser,
+    'wtr-lab.com': WtrLabParser,
 }
 
 def get_parser(url, force_default=False):

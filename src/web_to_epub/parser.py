@@ -1,3 +1,5 @@
+# This file is part of the Python port of the WebToEpub browser extension.
+# For the original project, see: https://github.com/dteviot/WebToEpub
 """
 This module contains the base Parser class.
 """

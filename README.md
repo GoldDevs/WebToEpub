@@ -1,8 +1,14 @@
 # Web to EPUB (Python)
 
-This is a Python command-line tool to convert web novels from various sources into EPUB format. It is a Python port of the popular [WebToEpub](https://github.com/dteviot/WebToEpub) browser extension.
+## Attribution
 
-This version is designed to be compatible with both standard PC environments (Windows, macOS, Linux) and Termux on Android.
+This project is a full conversion and rewrite of the original [WebToEpub](https://github.com/dteviot/WebToEpub) browser extension by `dteviot` into a modern, standalone Python application. All credit for the original concept, parser logic, and immense website support goes to the original author and the many contributors to that project.
+
+This Python version was created to provide a command-line and TUI-based tool that is compatible with a wide range of systems, including Termux on Android.
+
+---
+
+This is a Python command-line tool to convert web novels from various sources into EPUB format.
 
 ## Features
 
