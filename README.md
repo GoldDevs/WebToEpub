@@ -42,6 +42,15 @@ This will launch the application. From there, you can:
 
 The TUI is designed with a "mobile first" approach, ensuring it is usable on small screens, such as a phone running Termux.
 
+### Advanced Settings
+
+The TUI includes a "Settings" button which opens a new screen with advanced options:
+
+-   **Skip Images:** A checkbox to prevent any images from being downloaded.
+-   **Create EPUB 3:** A checkbox to create an EPUB 3 compliant file (defaults to EPUB 2).
+-   **Series & Volume:** Input fields to add Calibre-compatible series metadata to the EPUB.
+-   **Custom Stylesheet:** A text area to provide your own CSS for styling the EPUB content.
+
 ## Supported Sites
 
 This tool currently supports a subset of the sites supported by the original WebToEpub extension, with a focus on sites with "novel" in their names. The supported sites include:
