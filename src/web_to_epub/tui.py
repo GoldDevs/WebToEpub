@@ -1,3 +1,5 @@
+import io
+from PIL import Image
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Header, Footer, Button, Input, Static, RichLog, TextArea, Checkbox
@@ -16,10 +18,30 @@ class SettingsScreen(Screen):
         with Container():
             yield Checkbox("Skip images", id="skip_images", value=self.app.skip_images)
             yield Checkbox("Create EPUB 3", id="epub3", value=self.app.epub3)
+            yield Checkbox("Use full title as filename", id="full_title_filename", value=self.app.use_full_title_filename)
+            yield Checkbox("Include TOC page as chapter", id="toc_as_chapter", value=self.app.toc_as_chapter)
+            yield Checkbox("Add information page", id="add_info_page", value=self.app.add_info_page)
+            yield Checkbox("Remove next/prev chapter links", id="remove_nav_links", value=self.app.remove_nav_links)
+            yield Checkbox("Skip chapters that fail to download", id="skip_failed_chapters", value=self.app.skip_failed_chapters)
+            yield Checkbox("Compress images", id="compress_images", value=self.app.compress_images)
+            yield Static("Max image resolution:", classes="label")
+            yield Input(id="max_image_res", value=str(self.app.max_image_res), type="integer")
+            yield Static("Max chapters per EPUB (0 for unlimited):", classes="label")
+            yield Input(id="max_chapters_per_epub", value=str(self.app.max_chapters_per_epub), type="integer")
             yield Static("Series:", classes="label")
             yield Input(id="series_name", value=self.app.series_name or "")
             yield Static("Volume:", classes="label")
             yield Input(id="series_index", value=self.app.series_index or "")
+            yield Static("Subject (Tags, comma-separated):", classes="label")
+            yield Input(id="subject", value=self.app.subject or "")
+            yield Static("Description:", classes="label")
+            yield TextArea(self.app.description or "", id="description")
+            yield Static("Translator:", classes="label")
+            yield Input(id="translator", value=self.app.translator or "")
+            yield Static("Author File As:", classes="label")
+            yield Input(id="file_as", value=self.app.file_as or "")
+            yield Static("Manual download delay (ms):", classes="label")
+            yield Input(id="download_delay", value=str(self.app.download_delay), type="integer")
             yield Static("Custom Stylesheet:", classes="label")
             yield TextArea(self.app.custom_stylesheet or "", id="stylesheet_input", language="css")
             with Horizontal(classes="button-bar"):
@@ -31,8 +53,21 @@ class SettingsScreen(Screen):
         if event.button.id == "save_settings":
             self.app.skip_images = self.query_one("#skip_images", Checkbox).value
             self.app.epub3 = self.query_one("#epub3", Checkbox).value
+            self.app.use_full_title_filename = self.query_one("#full_title_filename", Checkbox).value
+            self.app.toc_as_chapter = self.query_one("#toc_as_chapter", Checkbox).value
+            self.app.add_info_page = self.query_one("#add_info_page", Checkbox).value
+            self.app.remove_nav_links = self.query_one("#remove_nav_links", Checkbox).value
+            self.app.skip_failed_chapters = self.query_one("#skip_failed_chapters", Checkbox).value
+            self.app.compress_images = self.query_one("#compress_images", Checkbox).value
+            self.app.max_image_res = int(self.query_one("#max_image_res", Input).value or 1080)
+            self.app.max_chapters_per_epub = int(self.query_one("#max_chapters_per_epub", Input).value or 0)
             self.app.series_name = self.query_one("#series_name", Input).value
             self.app.series_index = self.query_one("#series_index", Input).value
+            self.app.subject = self.query_one("#subject", Input).value
+            self.app.description = self.query_one("#description", TextArea).text
+            self.app.translator = self.query_one("#translator", Input).value
+            self.app.file_as = self.query_one("#file_as", Input).value
+            self.app.download_delay = int(self.query_one("#download_delay", Input).value or 0)
             self.app.custom_stylesheet = self.query_one("#stylesheet_input", TextArea).text
             self.app.pop_screen()
         elif event.button.id == "back_to_main":
@@ -52,6 +87,19 @@ class WebToEpubApp(App):
         self.epub3 = False
         self.series_name = None
         self.series_index = None
+        self.subject = None
+        self.description = None
+        self.translator = None
+        self.file_as = None
+        self.use_full_title_filename = False
+        self.toc_as_chapter = False
+        self.download_delay = 0
+        self.add_info_page = True
+        self.remove_nav_links = True
+        self.skip_failed_chapters = False
+        self.compress_images = False
+        self.max_image_res = 1080
+        self.max_chapters_per_epub = 0 # 0 means unlimited
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -81,7 +129,7 @@ class WebToEpubApp(App):
         log = self.query_one("#logs", RichLog)
 
         log.write("Starting download...")
-        downloader = Downloader()
+        downloader = Downloader(delay=self.download_delay)
         index_page_content = downloader.get(url)
 
         if not index_page_content:
@@ -104,7 +152,14 @@ class WebToEpubApp(App):
             return
 
         author = parser_instance.get_author()
-        output_filename = f"{title}.epub"
+
+        # Handle filename generation
+        if self.use_full_title_filename:
+            import re
+            safe_title = re.sub(r'[\\/*?:"<>|]',"", title)
+            output_filename = f"{safe_title}.epub"
+        else:
+            output_filename = f"{title.split(' ')[0]}.epub"
 
         log.write(f"Creating '{output_filename}' by {author}")
         epub_generator = EpubGenerator(
@@ -113,7 +168,11 @@ class WebToEpubApp(App):
             custom_stylesheet=self.custom_stylesheet,
             epub3=self.epub3,
             series_name=self.series_name,
-            series_index=self.series_index
+            series_index=self.series_index,
+            subject=self.subject,
+            description=self.description,
+            translator=self.translator,
+            file_as=self.file_as
         )
 
         if not self.skip_images:
@@ -122,26 +181,123 @@ class WebToEpubApp(App):
                 log.write("Downloading cover image...")
                 try:
                     cover_content = downloader.session.get(cover_url, timeout=10).content
+                    if self.compress_images:
+                        log.write("Compressing cover image...")
+                        cover_content = self._compress_image(cover_content)
                     cover_filename = cover_url.split('/')[-1]
                     epub_generator.set_cover(cover_content, cover_filename)
                 except Exception as e:
                     log.write(f"Could not download cover image: {e}")
 
+        # Handle including TOC as chapter
+        if self.toc_as_chapter:
+            toc_content = parser_instance.get_chapter_content(index_page_content)
+            epub_generator.add_chapter("Table of Contents", toc_content, 0)
+
+        # Add information page if requested
+        if self.add_info_page:
+            epub_generator.add_information_page()
+
         chapter_urls = parser_instance.get_chapter_urls(downloader)
         log.write(f"Found {len(chapter_urls)} chapters.")
 
         for i, chapter_url in enumerate(chapter_urls):
-            log.write(f"Downloading chapter {i+1}/{len(chapter_urls)}...")
-            self.call_from_thread(log.refresh) # Refresh the log
-            chapter_content_html = downloader.get(chapter_url)
-            if chapter_content_html:
-                chapter_title = parser_instance.get_chapter_title(chapter_content_html) or f"Chapter {i+1}"
-                chapter_content = parser_instance.get_chapter_content(chapter_content_html)
-                epub_generator.add_chapter(chapter_title, chapter_content, i+1)
+            try:
+                log.write(f"Downloading chapter {i+1}/{len(chapter_urls)}...")
+                self.call_from_thread(log.refresh) # Refresh the log
+                chapter_content_html = downloader.get(chapter_url)
+                if chapter_content_html:
+                    chapter_title = parser_instance.get_chapter_title(chapter_content_html) or f"Chapter {i+1}"
+                    chapter_content = parser_instance.get_chapter_content(
+                        chapter_content_html,
+                        chapter_urls=chapter_urls,
+                        remove_nav_links=self.remove_nav_links
+                    )
+                    epub_generator.add_chapter(chapter_title, chapter_content, i+1)
+                else:
+                    if not self.skip_failed_chapters:
+                        log.write(f"Failed to download chapter {i+1}. Halting.")
+                        return
+                    else:
+                        log.write(f"Failed to download chapter {i+1}. Skipping.")
+            except Exception as e:
+                if not self.skip_failed_chapters:
+                    log.write(f"An error occurred on chapter {i+1}: {e}. Halting.")
+                    return
+                else:
+                    log.write(f"An error occurred on chapter {i+1}: {e}. Skipping.")
 
-        epub_generator.save(output_filename)
-        log.write(f"Epub saved as {output_filename}")
+        # Chapter processing loop with volume splitting
+        volume_number = 1
+        chapters_in_volume = 0
+
+        for i, chapter_url in enumerate(chapter_urls):
+            # Check if we need to start a new volume
+            if self.max_chapters_per_epub > 0 and chapters_in_volume >= self.max_chapters_per_epub:
+                # Save the current volume
+                vol_filename = output_filename.replace('.epub', f'-v{volume_number}.epub')
+                epub_generator.save(vol_filename)
+                log.write(f"Saved volume {volume_number} as {vol_filename}")
+
+                # Start a new volume
+                volume_number += 1
+                chapters_in_volume = 0
+                epub_generator = EpubGenerator(
+                    title, author,
+                    custom_stylesheet=self.custom_stylesheet, epub3=self.epub3,
+                    series_name=self.series_name, series_index=self.series_index,
+                    subject=self.subject, description=self.description,
+                    translator=self.translator, file_as=self.file_as
+                )
+
+            try:
+                log.write(f"Downloading chapter {i+1}/{len(chapter_urls)}...")
+                self.call_from_thread(log.refresh) # Refresh the log
+                chapter_content_html = downloader.get(chapter_url)
+                if chapter_content_html:
+                    chapter_title = parser_instance.get_chapter_title(chapter_content_html) or f"Chapter {i+1}"
+                    chapter_content = parser_instance.get_chapter_content(
+                        chapter_content_html,
+                        chapter_urls=chapter_urls,
+                        remove_nav_links=self.remove_nav_links
+                    )
+                    epub_generator.add_chapter(chapter_title, chapter_content, i+1)
+                    chapters_in_volume += 1
+                else:
+                    if not self.skip_failed_chapters:
+                        log.write(f"Failed to download chapter {i+1}. Halting.")
+                        return
+                    else:
+                        log.write(f"Failed to download chapter {i+1}. Skipping.")
+            except Exception as e:
+                if not self.skip_failed_chapters:
+                    log.write(f"An error occurred on chapter {i+1}: {e}. Halting.")
+                    return
+                else:
+                    log.write(f"An error occurred on chapter {i+1}: {e}. Skipping.")
+
+        # Save the final/only volume
+        final_filename = output_filename
+        if volume_number > 1:
+            final_filename = output_filename.replace('.epub', f'-v{volume_number}.epub')
+        epub_generator.save(final_filename)
+        log.write(f"Epub saved as {final_filename}")
         self.query_one("#download_button").disabled = False
+
+    def _compress_image(self, image_content: bytes) -> bytes:
+        """Compresses an image if it's larger than the max resolution."""
+        try:
+            with Image.open(io.BytesIO(image_content)) as img:
+                if max(img.size) > self.max_image_res:
+                    img.thumbnail((self.max_image_res, self.max_image_res))
+
+                buffer = io.BytesIO()
+                img.save(buffer, format='JPEG', quality=85, optimize=True)
+                return buffer.getvalue()
+        except Exception as e:
+            log = self.query_one("#logs", RichLog)
+            log.write(f"Could not compress image: {e}")
+            return image_content # Return original content on failure
 
 
 def main():

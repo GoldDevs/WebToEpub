@@ -21,6 +21,7 @@ dependencies = [
     "beautifulsoup4",
     "EbookLib",
     "textual",
+    "Pillow",
 ]
 
 [project.urls]

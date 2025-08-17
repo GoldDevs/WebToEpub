@@ -64,5 +64,27 @@ class TestEpubGenerator(unittest.TestCase):
         # Clean up the temporary file
         os.remove(tmp_path)
 
+    def test_information_page(self):
+        gen = EpubGenerator(title="Info Book", author="Info Author")
+        gen.add_information_page()
+
+        with tempfile.NamedTemporaryFile(suffix=".epub", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        gen.save(tmp_path)
+
+        with zipfile.ZipFile(tmp_path, 'r') as zf:
+            namelist = zf.namelist()
+            root_dir = "EPUB" if "EPUB/content.opf" in namelist else "OEBPS"
+            info_path = f'{root_dir}/info.xhtml'
+
+            self.assertIn(info_path, namelist)
+            info_content = zf.read(info_path).decode('utf-8')
+            self.assertIn("<h1>About this book</h1>", info_content)
+            self.assertIn("<h2>Title: Info Book</h2>", info_content)
+            self.assertIn("<p><b>Author:</b> Info Author</p>", info_content)
+
+        os.remove(tmp_path)
+
 if __name__ == '__main__':
     unittest.main()

@@ -28,7 +28,7 @@ class Parser:
     def get_chapter_urls(self, downloader):
         raise NotImplementedError
 
-    def get_chapter_content(self, chapter_content):
+    def get_chapter_content(self, chapter_content, chapter_urls=None, remove_nav_links=False):
         soup = BeautifulSoup(chapter_content, 'html.parser')
         # This is a generic implementation, specific parsers can override this.
         # It tries to find a common content container.
@@ -36,7 +36,7 @@ class Parser:
         for div in content_divs:
             content = soup.select_one(div)
             if content:
-                return str(self.clean_content(content))
+                return str(self.clean_content(content, chapter_urls, remove_nav_links))
         return chapter_content # fallback
 
     def get_chapter_title(self, chapter_content):
@@ -45,10 +45,13 @@ class Parser:
             return soup.title.string
         return ""
 
-    def clean_content(self, element):
+    def clean_content(self, element, chapter_urls=None, remove_nav_links=False):
         """
         Removes unwanted tags and attributes from the chapter content.
         """
+        if remove_nav_links and chapter_urls:
+            self.remove_nav_links(element, chapter_urls)
+
         # Add more tags to this list as needed
         tags_to_remove = ['script', 'style', 'ins', 'iframe']
         for tag in element.find_all(tags_to_remove):
@@ -62,3 +65,14 @@ class Parser:
                     del tag[attr]
 
         return element
+
+    def remove_nav_links(self, element, chapter_urls):
+        """
+        Removes links to other chapters in the book.
+        """
+        from urllib.parse import urljoin
+
+        for link in element.find_all('a', href=True):
+            abs_url = urljoin(self.base_url, link['href'])
+            if abs_url in chapter_urls:
+                link.decompose() # Removes the link and its content
