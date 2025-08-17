@@ -40,3 +40,16 @@ Button {
     margin-top: 1;
     padding: 1;
 }
+
+#error_dialog {
+    width: 80%;
+    height: auto;
+    background: $panel;
+    border: thick $background;
+    padding: 1 2;
+    align: center middle;
+}
+
+#error_message {
+    margin-bottom: 1;
+}

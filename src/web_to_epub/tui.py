@@ -1,10 +1,12 @@
 import io
+import concurrent.futures
+import threading
 from PIL import Image
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Header, Footer, Button, Input, Static, RichLog, TextArea, Checkbox
 from textual.worker import work
-from textual.screen import Screen
+from textual.screen import Screen, ModalScreen
 
 from .downloader import Downloader
 from .epub_generator import EpubGenerator
@@ -28,6 +30,10 @@ class SettingsScreen(Screen):
             yield Input(id="max_image_res", value=str(self.app.max_image_res), type="integer")
             yield Static("Max chapters per EPUB (0 for unlimited):", classes="label")
             yield Input(id="max_chapters_per_epub", value=str(self.app.max_chapters_per_epub), type="integer")
+            yield Static("Max concurrent downloads:", classes="label")
+            yield Input(id="max_concurrent_downloads", value=str(self.app.max_concurrent_downloads), type="integer")
+            yield Static("Number of retries on error:", classes="label")
+            yield Input(id="num_retries", value=str(self.app.num_retries), type="integer")
             yield Static("Series:", classes="label")
             yield Input(id="series_name", value=self.app.series_name or "")
             yield Static("Volume:", classes="label")
@@ -61,6 +67,8 @@ class SettingsScreen(Screen):
             self.app.compress_images = self.query_one("#compress_images", Checkbox).value
             self.app.max_image_res = int(self.query_one("#max_image_res", Input).value or 1080)
             self.app.max_chapters_per_epub = int(self.query_one("#max_chapters_per_epub", Input).value or 0)
+            self.app.max_concurrent_downloads = int(self.query_one("#max_concurrent_downloads", Input).value or 1)
+            self.app.num_retries = int(self.query_one("#num_retries", Input).value or 3)
             self.app.series_name = self.query_one("#series_name", Input).value
             self.app.series_index = self.query_one("#series_index", Input).value
             self.app.subject = self.query_one("#subject", Input).value
@@ -73,6 +81,22 @@ class SettingsScreen(Screen):
         elif event.button.id == "back_to_main":
             self.app.pop_screen()
 
+class ErrorScreen(ModalScreen):
+    """A modal screen to display an error and get user action."""
+    def __init__(self, error_message: str) -> None:
+        super().__init__()
+        self.error_message = error_message
+
+    def compose(self) -> ComposeResult:
+        with Container(id="error_dialog"):
+            yield Static(self.error_message, id="error_message")
+            with Horizontal(classes="button-bar"):
+                yield Button("Retry", variant="primary", id="retry")
+                yield Button("Skip", id="skip")
+                yield Button("Abort", variant="error", id="abort")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id)
 
 class WebToEpubApp(App):
     """A Textual app to convert web novels to EPUB."""
@@ -100,6 +124,12 @@ class WebToEpubApp(App):
         self.compress_images = False
         self.max_image_res = 1080
         self.max_chapters_per_epub = 0 # 0 means unlimited
+        self.max_concurrent_downloads = 4
+        self.num_retries = 3
+
+        # For interactive error handling
+        self.error_event = threading.Event()
+        self.error_choice = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -227,54 +257,70 @@ class WebToEpubApp(App):
                 else:
                     log.write(f"An error occurred on chapter {i+1}: {e}. Skipping.")
 
-        # Chapter processing loop with volume splitting
+        # Parallel chapter download
+        chapters_to_download = list(enumerate(chapter_urls))
+        chapters_data = [None] * len(chapters_to_download)
+
+        while chapters_to_download:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent_downloads) as executor:
+                future_to_chapter = {executor.submit(self._download_chapter, i, url, downloader, parser_instance, chapter_urls): (i, url) for i, url in chapters_to_download}
+                chapters_to_download = [] # Clear the list for retries
+
+                for future in concurrent.futures.as_completed(future_to_chapter):
+                    i, url = future_to_chapter[future]
+                    try:
+                        data = future.result()
+                        if data:
+                            chapters_data[i] = data
+                            log.write(f"Successfully downloaded chapter {i+1}")
+                        else:
+                            log.write(f"Failed to download chapter {i+1} after all retries.")
+                    except Exception as exc:
+                        if self.skip_failed_chapters:
+                            log.write(f"Chapter {i+1} failed: {exc}. Skipping.")
+                            continue
+
+                        self.error_event.clear()
+                        self.call_from_thread(self.push_screen, ErrorScreen(f"Error on chapter {i+1}: {exc}"), self.handle_error_choice)
+                        self.error_event.wait() # Pause worker until user makes a choice
+
+                        if self.error_choice == 'retry':
+                            log.write(f"Retrying chapter {i+1}...")
+                            chapters_to_download.append((i, url)) # Add back to the list for retry
+                        elif self.error_choice == 'abort':
+                            log.write("Download aborted by user.")
+                            self.query_one("#download_button").disabled = False
+                            return
+                        elif self.error_choice == 'skip':
+                            log.write(f"Skipping chapter {i+1}.")
+                            continue
+
+        # Now add chapters to epub in correct order, handling volume splitting
         volume_number = 1
         chapters_in_volume = 0
+        for i, data in enumerate(chapters_data):
+            if data is None:
+                continue
 
-        for i, chapter_url in enumerate(chapter_urls):
             # Check if we need to start a new volume
             if self.max_chapters_per_epub > 0 and chapters_in_volume >= self.max_chapters_per_epub:
-                # Save the current volume
                 vol_filename = output_filename.replace('.epub', f'-v{volume_number}.epub')
                 epub_generator.save(vol_filename)
                 log.write(f"Saved volume {volume_number} as {vol_filename}")
 
-                # Start a new volume
                 volume_number += 1
                 chapters_in_volume = 0
                 epub_generator = EpubGenerator(
                     title, author,
                     custom_stylesheet=self.custom_stylesheet, epub3=self.epub3,
-                    series_name=self.series_name, series_index=self.series_index,
+                    series_name=self.series_name, series_index=f"{self.series_index or ''}-{volume_number}",
                     subject=self.subject, description=self.description,
                     translator=self.translator, file_as=self.file_as
                 )
 
-            try:
-                log.write(f"Downloading chapter {i+1}/{len(chapter_urls)}...")
-                self.call_from_thread(log.refresh) # Refresh the log
-                chapter_content_html = downloader.get(chapter_url)
-                if chapter_content_html:
-                    chapter_title = parser_instance.get_chapter_title(chapter_content_html) or f"Chapter {i+1}"
-                    chapter_content = parser_instance.get_chapter_content(
-                        chapter_content_html,
-                        chapter_urls=chapter_urls,
-                        remove_nav_links=self.remove_nav_links
-                    )
-                    epub_generator.add_chapter(chapter_title, chapter_content, i+1)
-                    chapters_in_volume += 1
-                else:
-                    if not self.skip_failed_chapters:
-                        log.write(f"Failed to download chapter {i+1}. Halting.")
-                        return
-                    else:
-                        log.write(f"Failed to download chapter {i+1}. Skipping.")
-            except Exception as e:
-                if not self.skip_failed_chapters:
-                    log.write(f"An error occurred on chapter {i+1}: {e}. Halting.")
-                    return
-                else:
-                    log.write(f"An error occurred on chapter {i+1}: {e}. Skipping.")
+            chapter_title, chapter_content = data
+            epub_generator.add_chapter(chapter_title, chapter_content, i + 1)
+            chapters_in_volume += 1
 
         # Save the final/only volume
         final_filename = output_filename
@@ -283,6 +329,28 @@ class WebToEpubApp(App):
         epub_generator.save(final_filename)
         log.write(f"Epub saved as {final_filename}")
         self.query_one("#download_button").disabled = False
+
+    def handle_error_choice(self, choice: str) -> None:
+        """Callback to handle the user's choice from the error screen."""
+        self.error_choice = choice
+        self.error_event.set()
+
+    def _download_chapter(self, chapter_index, chapter_url, downloader, parser, all_chapter_urls):
+        """Helper method to download and parse a single chapter."""
+        try:
+            chapter_content_html = downloader.get(chapter_url, num_retries=self.num_retries)
+            if chapter_content_html:
+                chapter_title = parser.get_chapter_title(chapter_content_html) or f"Chapter {chapter_index + 1}"
+                chapter_content = parser.get_chapter_content(
+                    chapter_content_html,
+                    chapter_urls=all_chapter_urls,
+                    remove_nav_links=self.remove_nav_links
+                )
+                return chapter_title, chapter_content
+        except Exception as e:
+            # Re-raise the exception to be caught by the main loop
+            raise e
+        return None
 
     def _compress_image(self, image_content: bytes) -> bytes:
         """Compresses an image if it's larger than the max resolution."""

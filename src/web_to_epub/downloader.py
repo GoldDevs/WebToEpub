@@ -12,17 +12,34 @@ class Downloader:
         })
         self.delay = delay # in milliseconds
 
-    def get(self, url):
+    def get(self, url, num_retries=3):
         """
-        Fetches the content of a given URL.
+        Fetches the content of a given URL with retries and rate-limiting.
         """
         if self.delay > 0:
             time.sleep(self.delay / 1000.0)
 
-        try:
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
-            return response.text
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching {url}: {e}")
-            return None
+        for attempt in range(num_retries):
+            try:
+                response = self.session.get(url, timeout=10)
+
+                if response.status_code == 429: # Too Many Requests
+                    retry_after = int(response.headers.get("Retry-After", 5))
+                    print(f"Rate limited. Retrying after {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                return response.text
+
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching {url} (attempt {attempt+1}/{num_retries}): {e}")
+                if attempt < num_retries - 1:
+                    # Exponential backoff
+                    backoff_time = 2 ** attempt
+                    print(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                else:
+                    print(f"Failed to fetch {url} after {num_retries} attempts.")
+                    raise e # Re-raise the exception to be handled by the caller
+        return None
